@@ -40,15 +40,15 @@ export const BUILT_IN_THEMES: ThemeMeta[] = [
     id: 'light',
     label: 'Light',
     dark: false,
-    themeColor: '#fafafa',
-    swatch: { canvas: '#f4f4f5', surface: '#ffffff', accent: '#3f3f46' },
+    themeColor: '#ffffff',
+    swatch: { canvas: '#f4f4f4', surface: '#ffffff', accent: '#924ff7' },
   },
   {
     id: 'dark',
     label: 'Dark',
     dark: true,
-    themeColor: '#121213',
-    swatch: { canvas: '#0f0f10', surface: '#18181a', accent: '#7aa2f7' },
+    themeColor: '#212121',
+    swatch: { canvas: '#121212', surface: '#303030', accent: '#924ff7' },
   },
   {
     id: 'tokyo-night',
@@ -76,7 +76,8 @@ export const BUILT_IN_THEMES: ThemeMeta[] = [
 /** Kept for callers that only ever needed the built-ins. */
 export const THEMES = BUILT_IN_THEMES
 
-const DEFAULT_THEME: ThemePreference = 'light'
+/** The kit is dark-native, so that is what an account without a choice gets. */
+export const DEFAULT_THEME: ThemePreference = 'dark'
 
 const BY_ID = new Map(BUILT_IN_THEMES.map((theme) => [theme.id, theme]))
 

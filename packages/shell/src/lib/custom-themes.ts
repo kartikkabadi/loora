@@ -58,7 +58,9 @@ export function deriveThemeVars(colors: CustomThemeColors, dark: boolean) {
     '--popover-foreground': ink,
     '--primary': accent,
     '--primary-foreground': canvas,
-    '--secondary': alpha(ink, 8),
+    // A solid step, not a tint: `secondary` fills switch tracks, pressed
+    // toggles and the segmented indicator in this kit.
+    '--secondary': mix(ink, surface, dark ? 12 : 8),
     '--secondary-foreground': ink,
     '--muted': alpha(ink, 6),
     '--muted-foreground': mix(ink, canvas, 62),
@@ -78,6 +80,10 @@ export function deriveThemeVars(colors: CustomThemeColors, dark: boolean) {
     '--surface': surface,
     '--surface-2': surface2,
     '--line': line,
+    // The well sinks below the page; the tooltip inverts against it.
+    '--well': mix(canvas, dark ? '#000000' : '#ffffff', 55),
+    '--tooltip': mix(ink, surface, 80),
+    '--tooltip-foreground': canvas,
   } satisfies Record<string, string>
 }
 
@@ -105,19 +111,19 @@ function normalizeColors(input: unknown, fallback: CustomThemeColors): CustomThe
 }
 
 export const DARK_PRESET: CustomThemeColors = {
-  canvas: '#0f0f10',
-  surface: '#18181a',
-  line: '#2c2c30',
-  ink: '#e1e1e1',
-  accent: '#7aa2f7',
+  canvas: '#121212',
+  surface: '#303030',
+  line: '#424242',
+  ink: '#ededed',
+  accent: '#924ff7',
 }
 
 export const LIGHT_PRESET: CustomThemeColors = {
-  canvas: '#f4f4f5',
+  canvas: '#f4f4f4',
   surface: '#ffffff',
-  line: '#e4e4e7',
-  ink: '#18181b',
-  accent: '#3f3f46',
+  line: '#e6e6e6',
+  ink: '#0d0d0d',
+  accent: '#924ff7',
 }
 
 /** Builds a stored theme from a name, a base, and the picked colours. */

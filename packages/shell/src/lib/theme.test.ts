@@ -6,6 +6,7 @@ import {
 } from './custom-themes'
 import {
   applyThemePreference,
+  DEFAULT_THEME,
   getThemePreference,
   setThemePreference,
   syncThemePreference,
@@ -44,12 +45,13 @@ afterEach(() => {
 })
 
 describe('theme preferences', () => {
-  test('uses light mode when no preference has been stored', () => {
-    expect(getThemePreference()).toBe('light')
+  test('uses the kit\'s dark mode when no preference has been stored', () => {
+    expect(getThemePreference()).toBe('dark')
 
     applyThemePreference()
 
-    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   })
 
   test('stores and applies dark mode', () => {
@@ -106,12 +108,12 @@ describe('theme preferences', () => {
   test('ignores a theme it does not know', () => {
     window.localStorage.setItem(STORAGE_KEY, 'solarized')
 
-    expect(getThemePreference()).toBe('light')
+    expect(getThemePreference()).toBe(DEFAULT_THEME)
 
     runInitScript()
 
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
-    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
   test('applies a custom theme inline and clears it again', () => {
@@ -147,12 +149,12 @@ describe('theme preferences', () => {
   test('falls back when the selected custom theme is gone', () => {
     window.localStorage.setItem(STORAGE_KEY, 'custom:missing')
 
-    expect(getThemePreference()).toBe('light')
+    expect(getThemePreference()).toBe(DEFAULT_THEME)
 
     applyThemePreference()
 
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
-    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
   test('tracks system appearance changes while system mode is selected', () => {

@@ -58,7 +58,7 @@ export function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
-            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) overflow-hidden rounded-lg border-0 bg-surface-2 text-popover-foreground shadow-panel outline-none transition-[width,height,scale,opacity] has-data-[slot=calendar]:rounded-lg data-starting-style:scale-98 data-starting-style:opacity-0",
+            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) overflow-hidden rounded-lg border-0 bg-surface-2 text-popover-foreground shadow-panel-lg outline-none transition-[width,height,scale,opacity] has-data-[slot=calendar]:rounded-lg data-starting-style:scale-98 data-starting-style:opacity-0",
             tooltipStyle &&
               "w-fit text-balance rounded-md text-xs",
             className,

@@ -24,6 +24,7 @@ import {
 } from '../lib/custom-themes'
 import {
   BUILT_IN_THEMES,
+  DEFAULT_THEME,
   getThemePreference,
   setThemePreference,
   type ThemePreference,
@@ -277,7 +278,7 @@ const optionClassName = (selected: boolean) =>
  * preview, which beats a swatch for a choice about size.
  */
 export function AppearanceSettings({ className }: { className?: string }) {
-  const [theme, setTheme] = useState<ThemePreference>('light')
+  const [theme, setTheme] = useState<ThemePreference>(DEFAULT_THEME)
   const [scale, setScale] = useState<UiScale>(DEFAULT_UI_SCALE)
 
   const [custom, setCustom] = useState<CustomTheme[]>([])

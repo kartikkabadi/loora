@@ -116,7 +116,7 @@ export function AutocompletePopup({
       >
         <span
           className={cn(
-            "relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-md border bg-popover shadow-[0_12px_32px_-24px_rgba(30,29,26,0.45)] transition-[scale,opacity]",
+            "relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-lg border bg-popover shadow-panel-lg transition-[scale,opacity]",
             className,
           )}
         >

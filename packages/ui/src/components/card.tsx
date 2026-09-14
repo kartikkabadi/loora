@@ -12,7 +12,7 @@ export function Card({
 }: useRender.ComponentProps<"div">): React.ReactElement {
   const defaultProps = {
     className: cn(
-      "relative flex flex-col rounded-lg border bg-card text-card-foreground",
+      "relative flex flex-col rounded-xl border bg-card text-card-foreground",
       className,
     ),
     "data-slot": "card",
@@ -32,7 +32,7 @@ export function CardFrame({
 }: useRender.ComponentProps<"div">): React.ReactElement {
   const defaultProps = {
     className: cn(
-      "relative flex flex-col rounded-lg border bg-muted/45 text-card-foreground [--clip-bottom:-1rem] [--clip-top:-1rem] has-data-[slot=table-container]:overflow-hidden *:data-[slot=card]:-m-px *:data-[slot=table-container]:-m-px *:data-[slot=table-container]:w-[calc(100%+2px)] *:not-first:data-[slot=card]:rounded-t-md *:not-last:data-[slot=card]:rounded-b-md *:data-[slot=card]:shadow-none *:not-first:data-[slot=card]:before:rounded-t-[calc(var(--radius-md)-1px)] *:not-last:data-[slot=card]:before:rounded-b-[calc(var(--radius-md)-1px)] *:data-[slot=card]:[clip-path:inset(var(--clip-top)_1px_var(--clip-bottom)_1px_round_calc(var(--radius-lg)-1px))] *:data-[slot=card]:last:[--clip-bottom:1px] *:data-[slot=card]:first:[--clip-top:1px]",
+      "relative flex flex-col rounded-xl border bg-muted/45 text-card-foreground [--clip-bottom:-1rem] [--clip-top:-1rem] has-data-[slot=table-container]:overflow-hidden *:data-[slot=card]:-m-px *:data-[slot=table-container]:-m-px *:data-[slot=table-container]:w-[calc(100%+2px)] *:not-first:data-[slot=card]:rounded-t-md *:not-last:data-[slot=card]:rounded-b-md *:data-[slot=card]:shadow-none *:not-first:data-[slot=card]:before:rounded-t-[calc(var(--radius-md)-1px)] *:not-last:data-[slot=card]:before:rounded-b-[calc(var(--radius-md)-1px)] *:data-[slot=card]:[clip-path:inset(var(--clip-top)_1px_var(--clip-bottom)_1px_round_calc(var(--radius-xl)-1px))] *:data-[slot=card]:last:[--clip-bottom:1px] *:data-[slot=card]:first:[--clip-top:1px]",
       className,
     ),
     "data-slot": "card-frame",
