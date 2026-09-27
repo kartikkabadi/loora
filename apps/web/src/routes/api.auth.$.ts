@@ -15,7 +15,6 @@ import { requireMcpConsent } from '@loora/auth/mcp-consent'
 import {
   clientAddress,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
   UNKNOWN_ADDRESS,
 } from '@loora/rpc/rate-limit'
@@ -61,7 +60,6 @@ async function handle(request: Request) {
   const decision = await rateLimit(
     credential ? 'auth-credentials' : 'auth',
     `ip:${address}`,
-    credential ? rateLimits.authSensitive : rateLimits.auth,
   )
   if (!decision.ok) {
     return tooManyRequestsResponse(

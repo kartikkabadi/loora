@@ -1,37 +1,19 @@
 /**
  * Request rate limiting for the web API routes. MCP burst limits live in
- * `apps/mcp` (Cloudflare Rate Limiting in production; Redis/memory locally)
- * and keep the same numbers as `rateLimits.mcp*` below.
+ * `apps/mcp` and keep the same numbers as `rateLimits.mcp*` below.
  *
- * Counting lives in the same Redis as the realtime bus (`REDIS_URL`). Keys are
- * prefixed `ratelimit:` so they never collide with room, presence, or ticket
- * keys. Every instance counts against the same keys, which is what makes a
- * limit mean anything once more than one web container is running.
+ * In production every bucket is a Cloudflare Rate Limiting binding declared in
+ * `apps/web/wrangler.jsonc`, so the count holds across isolates rather than
+ * per process. Cloudflare only counts over 10- or 60-second periods, which is
+ * why every rule below uses one of those windows.
  *
- * Without that URL — local development, or a Redis that has gone away — the
- * count falls back to this process's memory. That is weaker (an attacker spread
- * across instances gets a multiple of the limit) but it is never wrong in the
- * direction that matters: a caller in a loop still gets stopped, and a Redis
- * outage never takes the API down with it.
+ * Without a binding — tests, the Railway rollback build — the count falls back
+ * to this process's memory. That is weaker (a caller spread across instances
+ * gets a multiple of the limit) but it is never wrong in the direction that
+ * matters: a caller in a loop still gets stopped.
  */
 
-/**
- * Bun's Redis client is reached through the global rather than imported from
- * `'bun'`. This module is pulled into the web app's Vite build, which cannot
- * resolve that specifier — the same reason `storage.ts` reaches for
- * `Bun.S3Client` this way. Without a Bun runtime there is no client, and the
- * counting below falls back to memory.
- */
-interface BunRedisClient {
-  connect(): Promise<unknown>
-  close(): void
-  send(command: string, args: string[]): Promise<unknown>
-  onclose: ((error: Error) => void) | null
-}
-
-declare const Bun:
-  | { RedisClient?: new (url: string) => BunRedisClient }
-  | undefined
+import { rateLimitBinding } from '@loora/rpc/rate-limit-bindings'
 
 export interface RateLimitRule {
   /** How many requests one identity may make inside the window. */
@@ -48,91 +30,14 @@ export interface RateLimitDecision {
   retryAfterSeconds: number
 }
 
-/**
- * One round trip per check: the TTL is set only on the request that opened the
- * window, and every later request in that window just increments. A fixed
- * window lets a caller spend two windows' worth of requests across a window
- * boundary — for turning away loops and brute force, that is close enough, and
- * it costs one command instead of a sorted set per identity.
- */
-const COUNT_SCRIPT = `local hits = redis.call('INCR', KEYS[1])
-if hits == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
-return hits`
-
-const CONNECT_TIMEOUT_MS = 1_500
-const COMMAND_TIMEOUT_MS = 1_000
-/**
- * How long to stop reaching for a Redis that just failed. Without this, every
- * request during an outage would wait out the connect timeout before falling
- * back — the limiter would become the outage.
- */
-const UNAVAILABLE_COOLDOWN_MS = 10_000
 const MEMORY_TRACKED_KEYS = 50_000
 
-function redisUrl() {
-  return process.env.REDIS_URL?.trim() || null
-}
-
-let client: BunRedisClient | null = null
-let connection: Promise<BunRedisClient> | null = null
-let unavailableUntil = 0
-let warnedUnavailable = false
-
-/**
- * Neither `connect()` nor a command carries its own deadline, and a socket to
- * a host that has gone away can hang indefinitely. Nothing in front of a
- * request is allowed to do that.
- */
-function withTimeout<T>(work: Promise<T>, ms: number, label: string) {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  return Promise.race([
-    work,
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Redis ${label} timed out`)), ms)
-    }),
-  ]).finally(() => {
-    if (timer) clearTimeout(timer)
-  })
-}
-
-async function connected(url: string) {
-  if (client) return client
-  if (connection) return connection
-  if (typeof Bun === 'undefined' || !Bun?.RedisClient) {
-    throw new Error('Bun.RedisClient is unavailable in this runtime')
-  }
-  const RedisClient = Bun.RedisClient
-  connection = (async () => {
-    const next = new RedisClient(url)
-    next.onclose = () => {
-      if (client === next) client = null
-    }
-    try {
-      await withTimeout(next.connect(), CONNECT_TIMEOUT_MS, 'connection')
-    } catch (error) {
-      next.close()
-      throw error
-    }
-    client = next
-    return next
-  })()
-  try {
-    return await connection
-  } finally {
-    connection = null
-  }
-}
-
-/** Test seam: drops the cached connection so a suite can start clean. */
-export function resetRateLimitClient() {
-  client?.close()
-  client = null
-  connection = null
-  unavailableUntil = 0
-  warnedUnavailable = false
-}
-
 const counters = new Map<string, { hits: number; expiresAt: number }>()
+
+/** Test seam: forgets every in-memory window so a suite can start clean. */
+export function resetRateLimitCounters() {
+  counters.clear()
+}
 
 function countInMemory(key: string, windowMs: number, now: number) {
   const seen = counters.get(key)
@@ -155,50 +60,39 @@ function countInMemory(key: string, windowMs: number, now: number) {
   return seen.hits
 }
 
-async function count(key: string, windowMs: number) {
-  const url = redisUrl()
-  if (url && Date.now() >= unavailableUntil) {
-    try {
-      const redis = await connected(url)
-      const hits = await withTimeout(
-        redis.send('EVAL', [COUNT_SCRIPT, '1', key, String(windowMs)]),
-        COMMAND_TIMEOUT_MS,
-        'command',
-      )
-      warnedUnavailable = false
-      return Number(hits)
-    } catch (error) {
-      if (!warnedUnavailable) {
-        warnedUnavailable = true
-        console.error('[rate-limit] counting in memory; Redis is unavailable:', error)
-      }
-      // Every request in the next few seconds skips the reach entirely rather
-      // than queueing behind another connection attempt.
-      unavailableUntil = Date.now() + UNAVAILABLE_COOLDOWN_MS
-      client?.close()
-      client = null
-    }
-  }
-  return countInMemory(key, windowMs, Date.now())
-}
-
 /**
  * Counts one request against `identity` in `bucket` and says whether to serve
  * it. Buckets keep unrelated endpoints from spending each other's budget: a
  * user uploading assets should not be able to lock themselves out of signing in.
  */
 export async function rateLimit(
-  bucket: string,
+  bucket: RateLimitBucket,
   identity: string,
-  rule: RateLimitRule,
 ): Promise<RateLimitDecision> {
-  const hits = await count(`ratelimit:${bucket}:${identity}`, rule.windowMs)
-  const remaining = Math.max(0, rule.limit - hits)
+  const { binding: name, rule } = rateLimitBuckets[bucket]
+  const retryAfterSeconds = Math.max(1, Math.ceil(rule.windowMs / 1_000))
+  const binding = rateLimitBinding(name)
+  if (binding) {
+    try {
+      const { success } = await binding.limit({ key: identity })
+      // The binding says yes or no and nothing more, so `remaining` can only
+      // be an honest "some" or "none".
+      return {
+        ok: success,
+        limit: rule.limit,
+        remaining: success ? rule.limit : 0,
+        retryAfterSeconds,
+      }
+    } catch (error) {
+      console.error(`[rate-limit] ${name} failed; counting in memory:`, error)
+    }
+  }
+  const hits = countInMemory(`${bucket}:${identity}`, rule.windowMs, Date.now())
   return {
     ok: hits <= rule.limit,
     limit: rule.limit,
-    remaining,
-    retryAfterSeconds: Math.max(1, Math.ceil(rule.windowMs / 1_000)),
+    remaining: Math.max(0, rule.limit - hits),
+    retryAfterSeconds,
   }
 }
 
@@ -280,9 +174,11 @@ export const rateLimits = {
    * Password and email flows, per address. Sign-in, sign-up, password reset and
    * email verification are the endpoints worth guessing at, so they get a
    * tight budget of their own; everything else under `/api/auth` (session
-   * reads, sign-out, OAuth callbacks) rides the looser one.
+   * reads, sign-out, OAuth callbacks) rides the looser one. Cloudflare cannot
+   * count over five minutes, so this is five a minute rather than twelve per
+   * five: a burst is cut sooner, and a typo or two still gets through.
    */
-  authSensitive: { limit: 12, windowMs: 5 * 60_000 },
+  authSensitive: { limit: 5, windowMs: 60_000 },
   auth: { limit: 240, windowMs: 60_000 },
 
   /**
@@ -299,14 +195,6 @@ export const rateLimits = {
    * One socket needs a ticket every 15 minutes plus a few on reconnects.
    */
   realtimeTicket: { limit: 30, windowMs: 60_000 },
-  /** Opening an event stream. Reconnects back off client-side. */
-  canvasEvents: { limit: 60, windowMs: 60_000 },
-  /**
-   * Cursor frames on the fallback transport, throttled to one per 80ms in the
-   * client — 750/min from a tab whose pointer never stops. Two such tabs is
-   * already unusual, and a dropped frame costs nothing but a stale cursor.
-   */
-  canvasPresence: { limit: 1_500, windowMs: 60_000 },
 
   /** Authenticated asset reads. A design full of images loads many at once. */
   asset: { limit: 600, windowMs: 60_000 },
@@ -349,3 +237,28 @@ export const rateLimits = {
    */
   mcpAnonymous: { limit: 60, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>
+
+/**
+ * Every bucket a web route counts in, the rule it counts by, and the
+ * Cloudflare binding that counts it in production. `apps/web/wrangler.jsonc`
+ * declares one `ratelimits` entry per binding with the same limit and period;
+ * `apps/web/src/server/rate-limit-bindings.test.ts` holds the two together.
+ */
+export const rateLimitBuckets = {
+  'auth-credentials': { binding: 'RATE_LIMIT_AUTH_CREDENTIALS', rule: rateLimits.authSensitive },
+  auth: { binding: 'RATE_LIMIT_AUTH', rule: rateLimits.auth },
+  rpc: { binding: 'RATE_LIMIT_RPC', rule: rateLimits.rpc },
+  'rpc-anonymous': { binding: 'RATE_LIMIT_RPC_ANONYMOUS', rule: rateLimits.rpcAnonymous },
+  'realtime-ticket': { binding: 'RATE_LIMIT_REALTIME_TICKET', rule: rateLimits.realtimeTicket },
+  asset: { binding: 'RATE_LIMIT_ASSET', rule: rateLimits.asset },
+  handoff: { binding: 'RATE_LIMIT_HANDOFF', rule: rateLimits.handoff },
+  'handoff-asset': { binding: 'RATE_LIMIT_HANDOFF_ASSET', rule: rateLimits.handoff },
+  publish: { binding: 'RATE_LIMIT_PUBLISH', rule: rateLimits.publish },
+  publishedSite: { binding: 'RATE_LIMIT_PUBLISHED_SITE', rule: rateLimits.publishedSite },
+  github: { binding: 'RATE_LIMIT_GITHUB', rule: rateLimits.github },
+  chatgpt: { binding: 'RATE_LIMIT_CHATGPT', rule: rateLimits.chatgpt },
+  assistant: { binding: 'RATE_LIMIT_ASSISTANT', rule: rateLimits.assistant },
+  'github-webhook': { binding: 'RATE_LIMIT_GITHUB_WEBHOOK', rule: rateLimits.githubWebhook },
+} as const satisfies Record<string, { binding: string; rule: RateLimitRule }>
+
+export type RateLimitBucket = keyof typeof rateLimitBuckets

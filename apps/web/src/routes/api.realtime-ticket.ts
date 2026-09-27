@@ -7,7 +7,6 @@ import {
 } from '@loora/realtime/ticket'
 import {
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 import {
@@ -23,7 +22,7 @@ import {
  * session, legal consent, design access, preview access, plan — and hands back
  * a signed, short-lived ticket that carries the identity the room should show.
  * A 503 here is not an error: it means realtime is not configured, and the
- * client quietly falls back to the server-sent-events stream.
+ * client quietly keeps the document fresh by polling instead.
  */
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -37,7 +36,7 @@ function record(value: unknown): value is Record<string, unknown> {
  * leaves room for a bad network without leaving room for a script.
  */
 export function allowTicketRequest(userId: string) {
-  return rateLimit('realtime-ticket', `user:${userId}`, rateLimits.realtimeTicket)
+  return rateLimit('realtime-ticket', `user:${userId}`)
 }
 
 function realtimeConfig() {

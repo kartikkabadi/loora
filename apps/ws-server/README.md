@@ -65,6 +65,5 @@ bunx wrangler secret put REALTIME_INTERNAL_TOKEN
 `REALTIME_TICKET_SECRET_PREVIOUS` is optional during key rotation. The custom
 domain is declared in `wrangler.jsonc` as `ws.loora.design`.
 
-The web app may still use Redis for its SSE fallback. Server-side publishers
-dual-write to the Worker and Redis when both are configured, so WebSocket and
-SSE viewers receive the same events.
+This is the only realtime transport. Server-side publishers post to the
+Worker's `/publish`; without a socket service the editor polls instead.

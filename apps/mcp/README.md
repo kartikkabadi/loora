@@ -62,8 +62,7 @@ bun run --cwd apps/mcp deploy
 ```
 
 Rate limits use the Worker's `ratelimits` bindings in production. Local Bun
-falls back to in-memory counting, and to Redis (`REDIS_URL`) when Bun's Redis
-client is available — the same `ratelimit:` key prefix as the web app.
+falls back to in-memory counting.
 
 ## Validate
 

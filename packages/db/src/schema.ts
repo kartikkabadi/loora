@@ -331,7 +331,8 @@ export const canvasTransaction = pgTable(
 )
 
 /* Agent activity used to be a table here. It is ephemeral presence, not
-   history, so it lives in Redis with a TTL — see `canvas-realtime.ts`. */
+   history, so it lives in the realtime Worker's room with a TTL — see
+   `canvas-realtime.ts`. */
 
 export const designChat = pgTable(
   'design_chat',

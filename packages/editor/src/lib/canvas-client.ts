@@ -53,8 +53,6 @@ const REALTIME_DISCONNECTED_REFRESH_MS = 15_000
 const REALTIME_RETRY_MAX_MS = 30_000
 /** The socket service asking for a fresh ticket, not a broken connection. */
 const CLOSE_REALTIME_REAUTH = 4001
-/** After this many sockets that never opened, stay on the event stream. */
-const MAX_SOCKET_FAILURES = 3
 /** Offered alongside the ticket so the service knows which dialect this is. */
 const REALTIME_PROTOCOL = 'loora.realtime.v1'
 /** A pointer moves at frame rate; the wire does not have to. */
@@ -386,12 +384,11 @@ export class CanvasSyncController {
   #refreshTimer: ReturnType<typeof setTimeout> | null = null
   #activityTimer: ReturnType<typeof setTimeout> | null = null
   #realtimeRetryTimer: ReturnType<typeof setTimeout> | null = null
-  #eventSource: EventSource | null = null
   #socket: WebSocket | null = null
   /** Guards the async ticket fetch against a target that moved on. */
   #socketAttempt = 0
-  #socketFailures = 0
-  #transport: 'auto' | 'sse' = 'auto'
+  /** The app said it has no socket service; polling keeps the document fresh. */
+  #realtimeUnavailable = false
   #realtimeConnected = false
   #realtimeRetryDelay = 1_000
   #announcedRevision = 0
@@ -400,9 +397,8 @@ export class CanvasSyncController {
   #closed = false
   /**
    * The key this tab holds in the room. Proposed here, but the server decides:
-   * a ticket comes back with the key it minted, and the presence fallback
-   * answers with the one it scoped to this account. Both are adopted, because
-   * the room is keyed by it and this is how the tab recognises its own frames.
+   * a ticket comes back with the key it minted, and it is adopted, because the
+   * room is keyed by it and this is how the tab recognises its own frames.
    */
   #sessionId: string = crypto.randomUUID()
   #peers = new Map<string, CanvasPeer>()
@@ -555,55 +551,25 @@ export class CanvasSyncController {
   async #sendPresence(leaving = false) {
     if (this.#closed && !leaving) return
     this.#presenceSentAt = Date.now()
+    // Presence rides the socket alone. While one is being ticketed,
+    // handshaking, or waiting out a retry, the frame is dropped; the socket
+    // sends fresh presence as soon as it is ready.
     const socket = this.#socket
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      // Leaving needs no message: the service clears a peer when its socket
-      // goes, which also covers the tab that never got to say goodbye.
-      if (leaving) {
-        this.#disconnectRealtime()
-        return
-      }
-      try {
-        socket.send(
-          JSON.stringify({
-            type: 'presence',
-            cursor: this.#presence.cursor,
-            selection: this.#presence.selection,
-          }),
-        )
-      } catch {
-        // Presence is decoration; losing a frame of it changes nothing.
-      }
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    // Leaving needs no message: the service clears a peer when its socket
+    // goes, which also covers the tab that never got to say goodbye.
+    if (leaving) {
+      this.#disconnectRealtime()
       return
     }
-    // A socket is the transport unless this controller has fallen back to the
-    // event stream. While one is being ticketed, handshaking, or waiting out a
-    // retry, drop the frame rather than posting the same peer over HTTP: two
-    // channels publishing one cursor is how the room ends up echoing itself.
-    // The socket sends fresh presence as soon as it is ready.
-    if (this.#transport !== 'sse') return
-    const body = JSON.stringify({
-      designId: this.target.designId,
-      draftId: this.target.draftId,
-      sessionId: this.#sessionId,
-      cursor: this.#presence.cursor,
-      selection: this.#presence.selection,
-      ...(leaving ? { leaving: true } : {}),
-    })
     try {
-      const response = await fetch(apiUrl('/api/canvas-presence'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        keepalive: leaving,
-        credentials: 'include',
-      })
-      if (response.ok && !leaving) {
-        const scoped = (await response.json()) as { sessionId?: unknown }
-        if (typeof scoped.sessionId === 'string') {
-          this.#adoptSessionId(scoped.sessionId)
-        }
-      }
+      socket.send(
+        JSON.stringify({
+          type: 'presence',
+          cursor: this.#presence.cursor,
+          selection: this.#presence.selection,
+        }),
+      )
     } catch {
       // Presence is decoration; losing a frame of it changes nothing.
     }
@@ -941,19 +907,13 @@ export class CanvasSyncController {
   }
 
   /**
-   * A socket when there is a socket service to talk to, and the server-sent
-   * stream when there is not. The WebSocket carries the same events in both
-   * directions, which is what lets cursors ride it instead of paying for an
-   * HTTP request per pointer move.
+   * A socket when there is a socket service to talk to. Without one the
+   * document stays fresh through the refresh timer alone, just more slowly.
    */
   #connectRealtime() {
-    if (this.#closed || !navigator.onLine) return
-    if (this.#socket || this.#eventSource) return
-    if (this.#transport === 'auto' && typeof WebSocket !== 'undefined') {
-      void this.#connectSocket()
-      return
-    }
-    this.#connectEventSource()
+    if (this.#closed || !navigator.onLine || this.#realtimeUnavailable) return
+    if (this.#socket || typeof WebSocket === 'undefined') return
+    void this.#connectSocket()
   }
 
   async #connectSocket() {
@@ -971,9 +931,9 @@ export class CanvasSyncController {
         credentials: 'include',
       })
       // 503 is how the app says "no socket service here" — not a failure worth
-      // retrying, so this controller stays on the event stream from now on.
+      // retrying, so this controller polls from now on.
       if (response.status === 503 || response.status === 404) {
-        this.#transport = 'sse'
+        this.#realtimeUnavailable = true
       }
       ticket = response.ok ? await response.json() : null
     } catch {
@@ -981,8 +941,7 @@ export class CanvasSyncController {
     }
     if (this.#closed || attempt !== this.#socketAttempt) return
     if (typeof ticket?.url !== 'string' || typeof ticket.ticket !== 'string') {
-      if (this.#transport === 'sse') this.#connectEventSource()
-      else this.#retryRealtime()
+      if (!this.#realtimeUnavailable) this.#retryRealtime()
       return
     }
     if (typeof ticket.sessionId === 'string' && ticket.sessionId.length > 0) {
@@ -1001,23 +960,6 @@ export class CanvasSyncController {
     socket.addEventListener('close', this.#socketClose)
   }
 
-  #connectEventSource() {
-    if (this.#closed || this.#eventSource || typeof EventSource === 'undefined') {
-      return
-    }
-    const url = new URL(apiUrl('/api/canvas-events'))
-    url.searchParams.set('designId', this.target.designId)
-    if (this.target.draftId) {
-      url.searchParams.set('draftId', this.target.draftId)
-    }
-    const source = new EventSource(url, { withCredentials: true })
-    this.#eventSource = source
-    source.addEventListener('open', this.#realtimeOpen)
-    source.addEventListener('ready', this.#realtimeReady)
-    source.addEventListener('canvas', this.#realtimeCanvas)
-    source.addEventListener('error', this.#realtimeError)
-  }
-
   #disconnectRealtime() {
     this.#realtimeConnected = false
     // A new attempt number retires any ticket fetch still in flight.
@@ -1029,14 +971,6 @@ export class CanvasSyncController {
       socket.removeEventListener('close', this.#socketClose)
       socket.close()
     }
-    const source = this.#eventSource
-    this.#eventSource = null
-    if (!source) return
-    source.removeEventListener('open', this.#realtimeOpen)
-    source.removeEventListener('ready', this.#realtimeReady)
-    source.removeEventListener('canvas', this.#realtimeCanvas)
-    source.removeEventListener('error', this.#realtimeError)
-    source.close()
   }
 
   #socketMessage = (message: MessageEvent) => {
@@ -1046,7 +980,6 @@ export class CanvasSyncController {
     if (event.type === 'ready') {
       this.#adoptSessionId(event.sessionId)
       this.#realtimeConnected = true
-      this.#socketFailures = 0
       this.#realtimeOpen()
       if (event.peers.length > 0) this.#setPeers(event.peers)
       if (event.activity) this.#setAgentActivity(event.activity)
@@ -1057,7 +990,6 @@ export class CanvasSyncController {
   }
 
   #socketClose = (event: CloseEvent) => {
-    const wasConnected = this.#realtimeConnected
     this.#disconnectRealtime()
     if (this.#closed || !navigator.onLine) return
     this.#scheduleRefresh(0)
@@ -1067,12 +999,7 @@ export class CanvasSyncController {
       this.#retryRealtime(0)
       return
     }
-    if (!wasConnected) {
-      this.#socketFailures += 1
-      // A socket that never opens is usually a proxy in the way; the event
-      // stream goes over plain HTTP and gets through.
-      if (this.#socketFailures >= MAX_SOCKET_FAILURES) this.#transport = 'sse'
-    }
+    // The refresh timer keeps the document current while this backs off.
     this.#retryRealtime()
   }
 
@@ -1108,13 +1035,6 @@ export class CanvasSyncController {
     void this.#sendPresence()
   }
 
-  #realtimeCanvas = (message: Event) => {
-    if (!(message instanceof MessageEvent)) return
-    const event = parseCanvasRealtimeMessage(String(message.data))
-    if (event) this.#applyRealtimeEvent(event)
-  }
-
-  /** Shared by both transports: they carry exactly the same events. */
   #applyRealtimeEvent(event: CanvasRealtimeMessage) {
     if (event.type === 'ready' || event.type === 'pong') return
     if (event.type === 'agent.activity') {
@@ -1143,13 +1063,6 @@ export class CanvasSyncController {
       event.revision,
     )
     if (event.revision > this.#revision) this.#scheduleRefresh(0)
-  }
-
-  #realtimeError = () => {
-    this.#disconnectRealtime()
-    if (this.#closed || !navigator.onLine) return
-    this.#scheduleRefresh(0)
-    this.#retryRealtime()
   }
 
   #scheduleRefresh(delay: number) {

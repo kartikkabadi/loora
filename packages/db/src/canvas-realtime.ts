@@ -1,14 +1,6 @@
 import {
-  canvasRealtimeChannel,
-  isCanvasPresencePeer,
   isCanvasRealtimeActivity,
-  isPresenceFresh,
-  MAX_PRESENCE_PEERS,
-  parseCanvasRealtimeEvent,
-  PRESENCE_TTL_MS,
-  type CanvasPresencePeer,
   type CanvasRealtimeActivity,
-  type CanvasRealtimeEvent,
   type CanvasRealtimeEventInput,
   type CanvasRealtimeTarget,
 } from '@loora/realtime/events'
@@ -18,32 +10,14 @@ import {
   sendRealtimeIngest,
 } from '@loora/realtime/ingest'
 
-interface RuntimeRedisClient {
-  connect(): Promise<unknown>
-  close(): void
-  publish(channel: string, message: string): Promise<unknown>
-  send(command: string, args: string[]): Promise<unknown>
-  get(key: string): Promise<unknown>
-  subscribe(
-    channel: string,
-    listener: (message: string) => void,
-  ): Promise<unknown>
-  unsubscribe(channel: string): Promise<unknown>
-  onclose: ((error: Error) => void) | null
-}
-
-declare const Bun:
-  | { RedisClient?: new (url: string) => RuntimeRedisClient }
-  | undefined
-
 /**
  * Server-side realtime plumbing.
  *
  * The wire protocol itself lives in `@loora/realtime`; this module is the part
  * that talks to infrastructure. Publishes go to the WebSocket Worker's ingest
- * endpoint and, when configured, Redis as well. The Worker owns WebSocket room
- * state while Redis keeps the SSE fallback and multi-instance web subscribers
- * in sync. Either destination may be absent or temporarily unavailable.
+ * endpoint, and the Worker's Durable Objects own every room's state. When no
+ * ingest endpoint is configured, publishing is a no-op and editors fall back
+ * to polling.
  */
 
 export {
@@ -61,91 +35,17 @@ export {
   type CanvasRealtimeTarget,
 } from '@loora/realtime/events'
 
-function redisUrl() {
-  return process.env.REDIS_URL?.trim() || null
-}
-
-function createRedisClient(url: string) {
-  if (typeof Bun === 'undefined' || !Bun?.RedisClient) {
-    throw new Error('Bun.RedisClient is unavailable in this runtime')
-  }
-  return new Bun.RedisClient(url)
-}
-
-async function connect(client: RuntimeRedisClient) {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  try {
-    await Promise.race([
-      client.connect(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('Redis connection timed out')),
-          3_000,
-        )
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-let publisher: RuntimeRedisClient | null = null
-let publisherConnection: Promise<RuntimeRedisClient> | null = null
-
-async function connectedPublisher(url: string) {
-  if (publisher) return publisher
-  if (publisherConnection) return publisherConnection
-  publisherConnection = (async () => {
-    const client = createRedisClient(url)
-    client.onclose = () => {
-      if (publisher === client) publisher = null
-    }
-    try {
-      await connect(client)
-    } catch (error) {
-      client.close()
-      throw error
-    }
-    publisher = client
-    return client
-  })()
-  try {
-    return await publisherConnection
-  } finally {
-    publisherConnection = null
-  }
-}
-
-function dropPublisher() {
-  publisher?.close()
-  publisher = null
-}
-
 export async function publishCanvasRealtimeEvent(
   userId: string,
   target: CanvasRealtimeTarget,
   event: CanvasRealtimeEventInput,
 ) {
-  const ingested = await sendRealtimeIngest({
+  return sendRealtimeIngest({
     kind: 'event',
     ownerUserId: userId,
     target,
     event,
   })
-  const url = redisUrl()
-  if (!url) return ingested
-  try {
-    const client = await connectedPublisher(url)
-    await client.publish(
-      canvasRealtimeChannel(userId, target),
-      JSON.stringify({ ...event, sentAt: Date.now() }),
-    )
-    return true
-  } catch {
-    dropPublisher()
-    if (!ingested) console.error('[canvas-realtime] Could not publish event')
-    return ingested
-  }
 }
 
 /**
@@ -175,62 +75,22 @@ export async function publishBranchChanged(
   ])
 }
 
-function presenceKey(userId: string, target: CanvasRealtimeTarget) {
-  return `${canvasRealtimeChannel(userId, target)}:presence`
-}
-
-function agentActivityKey(userId: string, target: CanvasRealtimeTarget) {
-  return `${canvasRealtimeChannel(userId, target)}:agent`
-}
-
 /**
  * What an external agent is doing right now. This is ephemeral state, so it
- * lives in Redis with a TTL rather than in Postgres: a tool call pays one
- * pipelined round trip instead of three statements, and an agent that died
- * mid-run stops being drawn on its own.
+ * lives in the socket service's room with a TTL rather than in Postgres, and
+ * an agent that died mid-run stops being drawn on its own.
  */
 export async function publishCanvasAgentActivity(
   userId: string,
   target: CanvasRealtimeTarget,
   current: CanvasRealtimeActivity | null,
 ) {
-  const ingested = await sendRealtimeIngest({
+  return sendRealtimeIngest({
     kind: 'activity',
     ownerUserId: userId,
     target,
     activity: current,
   })
-  const url = redisUrl()
-  if (!url) return ingested
-  const key = agentActivityKey(userId, target)
-  try {
-    const client = await connectedPublisher(url)
-    const write = current
-      ? client.send('SET', [
-          key,
-          JSON.stringify(current),
-          'PX',
-          String(
-            Math.max(1_000, Math.round(current.expiresAt - current.updatedAt)),
-          ),
-        ])
-      : client.send('DEL', [key])
-    await Promise.all([
-      write,
-      client.publish(
-        canvasRealtimeChannel(userId, target),
-        JSON.stringify({
-          type: 'agent.activity',
-          activity: current,
-          sentAt: Date.now(),
-        }),
-      ),
-    ])
-    return true
-  } catch {
-    dropPublisher()
-    return ingested
-  }
 }
 
 /** For a tab that opens while an agent is already working. */
@@ -238,191 +98,9 @@ export async function readCanvasAgentActivity(
   userId: string,
   target: CanvasRealtimeTarget,
 ): Promise<CanvasRealtimeActivity | null> {
-  if (realtimeIngestConfig()) {
-    const state = await readRealtimeRoomState(userId, target)
-    if (state) {
-      return state.activity && isCanvasRealtimeActivity(state.activity)
-        ? state.activity
-        : null
-    }
-  }
-  const url = redisUrl()
-  if (!url) return null
-  let value: unknown
-  try {
-    const client = await connectedPublisher(url)
-    value = await client.get(agentActivityKey(userId, target))
-  } catch {
-    dropPublisher()
-    return null
-  }
-  if (typeof value !== 'string') return null
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(value)
-  } catch {
-    return null
-  }
-  return isCanvasRealtimeActivity(parsed) && parsed.expiresAt > Date.now()
-    ? parsed
+  if (!realtimeIngestConfig()) return null
+  const state = await readRealtimeRoomState(userId, target)
+  return state?.activity && isCanvasRealtimeActivity(state.activity)
+    ? state.activity
     : null
-}
-
-/**
- * Everyone currently in the document. Held outside the process so a second web
- * instance sees the same room, and expired by timestamp on read so a tab that
- * vanished without a goodbye drops out on its own.
- */
-export async function readCanvasPresence(
-  userId: string,
-  target: CanvasRealtimeTarget,
-): Promise<CanvasPresencePeer[]> {
-  if (realtimeIngestConfig()) {
-    const state = await readRealtimeRoomState(userId, target)
-    if (state) return state.peers.slice(0, MAX_PRESENCE_PEERS)
-  }
-  const url = redisUrl()
-  if (!url) return []
-  try {
-    const client = await connectedPublisher(url)
-    const entries = (await client.send('HGETALL', [
-      presenceKey(userId, target),
-    ])) as unknown
-    const values = Array.isArray(entries)
-      ? entries.filter((_, index) => index % 2 === 1)
-      : Object.values((entries ?? {}) as Record<string, string>)
-    const now = Date.now()
-    const peers: CanvasPresencePeer[] = []
-    for (const value of values) {
-      if (typeof value !== 'string') continue
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(value)
-      } catch {
-        continue
-      }
-      if (isCanvasPresencePeer(parsed) && isPresenceFresh(parsed, now)) {
-        peers.push(parsed)
-      }
-    }
-    return peers.slice(0, MAX_PRESENCE_PEERS)
-  } catch {
-    dropPublisher()
-    return []
-  }
-}
-
-/** Long enough that a live room never expires between heartbeats. */
-const PRESENCE_KEY_TTL_MS = PRESENCE_TTL_MS * 4
-
-/** Records where a person is and tells the room, in one round trip each. */
-export async function publishCanvasPresence(
-  userId: string,
-  target: CanvasRealtimeTarget,
-  peer: CanvasPresencePeer,
-) {
-  const ingested = await sendRealtimeIngest({
-    kind: 'presence',
-    ownerUserId: userId,
-    target,
-    peer,
-  })
-  const url = redisUrl()
-  if (!url) return ingested
-  const key = presenceKey(userId, target)
-  try {
-    const client = await connectedPublisher(url)
-    await client.send('HSET', [key, peer.sessionId, JSON.stringify(peer)])
-    await client.send('PEXPIRE', [key, String(PRESENCE_KEY_TTL_MS)])
-    await client.publish(
-      canvasRealtimeChannel(userId, target),
-      JSON.stringify({
-        type: 'presence.peer',
-        sessionId: peer.sessionId,
-        peer,
-        sentAt: Date.now(),
-      }),
-    )
-    return true
-  } catch {
-    dropPublisher()
-    return ingested
-  }
-}
-
-export async function clearCanvasPresence(
-  userId: string,
-  target: CanvasRealtimeTarget,
-  sessionId: string,
-) {
-  const ingested = await sendRealtimeIngest({
-    kind: 'presence.clear',
-    ownerUserId: userId,
-    target,
-    sessionId,
-  })
-  const url = redisUrl()
-  if (!url) return ingested
-  try {
-    const client = await connectedPublisher(url)
-    await client.send('HDEL', [presenceKey(userId, target), sessionId])
-    await client.publish(
-      canvasRealtimeChannel(userId, target),
-      JSON.stringify({
-        type: 'presence.peer',
-        sessionId,
-        peer: null,
-        sentAt: Date.now(),
-      }),
-    )
-    return true
-  } catch {
-    dropPublisher()
-    return ingested
-  }
-}
-
-export interface CanvasRealtimeSubscription {
-  close: () => void
-}
-
-export async function subscribeCanvasRealtimeEvents(
-  userId: string,
-  target: CanvasRealtimeTarget,
-  onEvent: (event: CanvasRealtimeEvent) => void,
-  onClose: (error?: Error) => void,
-): Promise<CanvasRealtimeSubscription | null> {
-  const url = redisUrl()
-  if (!url || typeof Bun === 'undefined' || !Bun?.RedisClient) return null
-  const client = createRedisClient(url)
-  let closed = false
-  client.onclose = (error) => {
-    if (!closed) onClose(error)
-  }
-  try {
-    await connect(client)
-  } catch (error) {
-    closed = true
-    client.close()
-    throw error
-  }
-  const channel = canvasRealtimeChannel(userId, target)
-  try {
-    await client.subscribe(channel, (message) => {
-      const event = parseCanvasRealtimeEvent(message)
-      if (event) onEvent(event)
-    })
-  } catch (error) {
-    closed = true
-    client.close()
-    throw error
-  }
-  return {
-    close: () => {
-      if (closed) return
-      closed = true
-      void client.unsubscribe(channel).catch(() => {})
-      client.close()
-    },
-  }
 }

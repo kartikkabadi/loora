@@ -8,7 +8,6 @@ import { s3 } from '@loora/rpc/storage'
 import {
   callerIdentity,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -19,7 +18,6 @@ export const Route = createFileRoute('/api/handoff/$token/asset/$id')({
         const decision = await rateLimit(
           'handoff-asset',
           callerIdentity(request.headers),
-          rateLimits.handoff,
         )
         if (!decision.ok) return tooManyRequestsResponse(decision)
 

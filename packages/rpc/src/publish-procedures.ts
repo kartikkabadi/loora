@@ -28,7 +28,7 @@ import {
   protectedProcedure,
   requireDesignAccess,
 } from './procedures'
-import { rateLimit, rateLimits } from './rate-limit'
+import { rateLimit } from './rate-limit'
 import { assetPublicUrl, s3 } from '@loora/rpc/storage'
 import {
   canUseCustomDomains,
@@ -301,7 +301,6 @@ export const publishPage = protectedProcedure
     const decision = await rateLimit(
       'publish',
       `user:${context.user.id}`,
-      rateLimits.publish,
     )
     if (!decision.ok) {
       throw new ORPCError('TOO_MANY_REQUESTS', {

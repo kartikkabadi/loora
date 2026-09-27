@@ -2,10 +2,9 @@
  * The realtime wire protocol, with no transport in it.
  *
  * Every side of realtime speaks these shapes: the WebSocket service that fans
- * them out, the web app that renders them, the MCP server that emits them, and
- * the Redis bus used by the SSE fallback. Keeping the definitions here — free
- * of database, auth, and canvas imports — lets the Worker stay independent of
- * the product database.
+ * them out, the web app that renders them, and the MCP server that emits
+ * them. Keeping the definitions here — free of database, auth, and canvas
+ * imports — lets the Worker stay independent of the product database.
  */
 
 export interface CanvasRealtimeTarget {

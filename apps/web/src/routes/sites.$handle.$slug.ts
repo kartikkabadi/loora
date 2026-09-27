@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { loadPublishedSiteHtml } from '@loora/rpc/publish-procedures'
-import { callerIdentity, rateLimit, rateLimits } from '@loora/rpc/rate-limit'
+import { callerIdentity, rateLimit } from '@loora/rpc/rate-limit'
 
 const headers = {
   'Content-Type': 'text/html; charset=utf-8',
@@ -16,7 +16,6 @@ export async function publishedSiteResponse(
   const decision = await rateLimit(
     'publishedSite',
     callerIdentity(request.headers),
-    rateLimits.publishedSite,
   )
   if (!decision.ok) {
     return new Response('Too many requests. Try again shortly.', {

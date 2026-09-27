@@ -8,7 +8,6 @@ import {
 import {
   callerIdentity,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -22,7 +21,6 @@ export const Route = createFileRoute('/api/github/webhook')({
         const decision = await rateLimit(
           'github-webhook',
           callerIdentity(request.headers),
-          rateLimits.githubWebhook,
         )
         if (!decision.ok) return tooManyRequestsResponse(decision)
 

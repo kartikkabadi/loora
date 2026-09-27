@@ -1,92 +1,130 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const binding = vi.hoisted(() => ({
+  current: null as null | {
+    limit: (options: { key: string }) => Promise<{ success: boolean }>
+  },
+  names: [] as string[],
+}))
+
+vi.mock('@loora/rpc/rate-limit-bindings', () => ({
+  rateLimitBinding: (name: string) => {
+    binding.names.push(name)
+    return binding.current
+  },
+}))
+
 import {
   callerIdentity,
   clientAddress,
   rateLimit,
+  rateLimitBuckets,
   rateLimitHeaders,
   rateLimits,
-  resetRateLimitClient,
+  resetRateLimitCounters,
   tooManyRequestsResponse,
   UNKNOWN_ADDRESS,
 } from './rate-limit'
 
-// No Redis in the suite: these cover the in-memory path every deployment falls
-// back to, which is the one that has to stay correct when Redis is missing.
-const url = process.env.REDIS_URL
-
 beforeEach(() => {
-  delete process.env.REDIS_URL
-  resetRateLimitClient()
+  binding.current = null
+  binding.names = []
+  resetRateLimitCounters()
 })
 
 afterEach(() => {
-  if (url === undefined) delete process.env.REDIS_URL
-  else process.env.REDIS_URL = url
+  vi.useRealTimers()
 })
 
 function identity(name: string) {
   return `${name}-${Math.random()}`
 }
 
-describe('rateLimit', () => {
+// `auth-credentials` is the tightest bucket, so these tests reach its limit in
+// a handful of requests.
+const tight = 'auth-credentials'
+const tightLimit = rateLimitBuckets[tight].rule.limit
+
+async function spend(bucket: typeof tight | 'github', who: string, times: number) {
+  for (let index = 0; index < times; index += 1) {
+    expect((await rateLimit(bucket, who)).ok).toBe(true)
+  }
+}
+
+describe('rateLimit in memory', () => {
   it('serves a caller up to the limit and refuses the next request', async () => {
     const who = identity('caller')
-    const rule = { limit: 3, windowMs: 60_000 }
 
-    expect((await rateLimit('test', who, rule)).ok).toBe(true)
-    expect((await rateLimit('test', who, rule)).ok).toBe(true)
-    const last = await rateLimit('test', who, rule)
+    await spend(tight, who, tightLimit - 1)
+    const last = await rateLimit(tight, who)
     expect(last.ok).toBe(true)
     expect(last.remaining).toBe(0)
 
-    const refused = await rateLimit('test', who, rule)
+    const refused = await rateLimit(tight, who)
     expect(refused.ok).toBe(false)
     expect(refused.remaining).toBe(0)
     expect(refused.retryAfterSeconds).toBe(60)
   })
 
   it('counts each caller on its own', async () => {
-    const rule = { limit: 1, windowMs: 60_000 }
     const first = identity('first')
     const second = identity('second')
 
-    expect((await rateLimit('test', first, rule)).ok).toBe(true)
-    expect((await rateLimit('test', first, rule)).ok).toBe(false)
-    expect((await rateLimit('test', second, rule)).ok).toBe(true)
+    await spend(tight, first, tightLimit)
+    expect((await rateLimit(tight, first)).ok).toBe(false)
+    expect((await rateLimit(tight, second)).ok).toBe(true)
   })
 
   it('keeps buckets apart so one endpoint cannot spend the budget of another', async () => {
     const who = identity('caller')
-    const rule = { limit: 1, windowMs: 60_000 }
 
-    expect((await rateLimit('bucket-a', who, rule)).ok).toBe(true)
-    expect((await rateLimit('bucket-a', who, rule)).ok).toBe(false)
-    expect((await rateLimit('bucket-b', who, rule)).ok).toBe(true)
-  })
-
-  it('keeps counting when Redis cannot be reached', async () => {
-    // Nothing is listening on port 1, so this is what an outage looks like:
-    // the limiter has to keep answering, and keep counting, without it.
-    process.env.REDIS_URL = 'redis://127.0.0.1:1'
-    resetRateLimitClient()
-    const who = identity('caller')
-    const rule = { limit: 1, windowMs: 60_000 }
-
-    const startedAt = Date.now()
-    expect((await rateLimit('test', who, rule)).ok).toBe(true)
-    expect((await rateLimit('test', who, rule)).ok).toBe(false)
-    // The second request must not queue behind another connection attempt.
-    expect(Date.now() - startedAt).toBeLessThan(4_000)
+    await spend(tight, who, tightLimit)
+    expect((await rateLimit(tight, who)).ok).toBe(false)
+    expect((await rateLimit('github', who)).ok).toBe(true)
   })
 
   it('serves the caller again once the window has rolled', async () => {
+    vi.useFakeTimers()
     const who = identity('caller')
-    const rule = { limit: 1, windowMs: 10 }
 
-    expect((await rateLimit('test', who, rule)).ok).toBe(true)
-    expect((await rateLimit('test', who, rule)).ok).toBe(false)
-    await new Promise((resolve) => setTimeout(resolve, 15))
-    expect((await rateLimit('test', who, rule)).ok).toBe(true)
+    await spend(tight, who, tightLimit)
+    expect((await rateLimit(tight, who)).ok).toBe(false)
+    vi.advanceTimersByTime(rateLimitBuckets[tight].rule.windowMs + 1)
+    expect((await rateLimit(tight, who)).ok).toBe(true)
+  })
+})
+
+describe('rateLimit through a Cloudflare binding', () => {
+  it('asks the bucket\'s own binding, keyed by the caller', async () => {
+    const keys: string[] = []
+    binding.current = {
+      limit: async ({ key }) => {
+        keys.push(key)
+        return { success: keys.length === 1 }
+      },
+    }
+
+    const served = await rateLimit('rpc', 'user:1')
+    const refused = await rateLimit('rpc', 'user:1')
+
+    expect(binding.names).toEqual(['RATE_LIMIT_RPC', 'RATE_LIMIT_RPC'])
+    expect(keys).toEqual(['user:1', 'user:1'])
+    expect(served).toMatchObject({ ok: true, limit: rateLimits.rpc.limit })
+    expect(refused).toMatchObject({ ok: false, remaining: 0, retryAfterSeconds: 60 })
+  })
+
+  it('counts in memory when the binding throws, rather than failing the request', async () => {
+    binding.current = {
+      limit: async () => {
+        throw new Error('binding unavailable')
+      },
+    }
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const who = identity('caller')
+
+    await spend(tight, who, tightLimit)
+    expect((await rateLimit(tight, who)).ok).toBe(false)
+    error.mockRestore()
   })
 })
 
@@ -133,14 +171,12 @@ describe('callerIdentity', () => {
   })
 
   it('keeps two addresses in separate buckets', async () => {
-    const rule = { limit: 1, windowMs: 60_000 }
-    const bucket = `identity-${Math.random()}`
     const first = new Headers({ 'cf-connecting-ip': '203.0.113.7' })
     const second = new Headers({ 'cf-connecting-ip': '198.51.100.4' })
 
-    expect((await rateLimit(bucket, callerIdentity(first), rule)).ok).toBe(true)
-    expect((await rateLimit(bucket, callerIdentity(first), rule)).ok).toBe(false)
-    expect((await rateLimit(bucket, callerIdentity(second), rule)).ok).toBe(true)
+    await spend(tight, callerIdentity(first), tightLimit)
+    expect((await rateLimit(tight, callerIdentity(first))).ok).toBe(false)
+    expect((await rateLimit(tight, callerIdentity(second))).ok).toBe(true)
   })
 })
 
@@ -173,14 +209,25 @@ describe('tooManyRequestsResponse', () => {
 
 describe('rateLimits', () => {
   it('leaves room for what the editor actually sends', () => {
-    // One tab flushes a canvas batch about every 250ms and posts a cursor
-    // every 80ms on the fallback transport. A limit under either of those
+    // One tab flushes a canvas batch about every 250ms. A limit under that
     // would trip during ordinary work.
     expect(rateLimits.rpc.limit).toBeGreaterThan(240)
-    expect(rateLimits.canvasPresence.limit).toBeGreaterThan(750)
     for (const rule of Object.values(rateLimits)) {
       expect(rule.limit).toBeGreaterThan(0)
       expect(rule.windowMs).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('rateLimitBuckets', () => {
+  it('only uses windows a Cloudflare binding can count', () => {
+    for (const { rule } of Object.values(rateLimitBuckets)) {
+      expect([10_000, 60_000]).toContain(rule.windowMs)
+    }
+  })
+
+  it('gives every bucket a binding of its own', () => {
+    const names = Object.values(rateLimitBuckets).map(({ binding }) => binding)
+    expect(new Set(names).size).toBe(names.length)
   })
 })

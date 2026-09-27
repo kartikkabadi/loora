@@ -53,7 +53,7 @@ export function createAppState(
       cacheTtlMs: config.authCacheTtlMs,
       fetchImpl,
     }),
-    rates: options.rates ?? new RateLimiter({ redisUrl: config.redisUrl }),
+    rates: options.rates ?? new RateLimiter(),
     fetchImpl,
   }
 }
@@ -63,7 +63,6 @@ export function stateFromEnv(env: Env | NodeJS.ProcessEnv): AppState {
   const workerEnv = env as Env
   return createAppState(config, {
     rates: new RateLimiter({
-      redisUrl: config.redisUrl,
       bindings: {
         mcp: workerEnv.MCP_ACCOUNT,
         'mcp-address': workerEnv.MCP_ADDRESS,

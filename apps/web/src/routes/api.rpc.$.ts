@@ -13,7 +13,6 @@ import {
 import {
   callerIdentity,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -34,7 +33,6 @@ async function handle(request: Request) {
   const decision = await rateLimit(
     userId ? 'rpc' : 'rpc-anonymous',
     callerIdentity(request.headers, userId),
-    userId ? rateLimits.rpc : rateLimits.rpcAnonymous,
   )
   if (!decision.ok) return tooManyRequestsResponse(decision)
 

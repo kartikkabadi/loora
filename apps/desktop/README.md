@@ -19,8 +19,7 @@ server, opens the window on it, and is the only thing that ever holds the
 session. Everything the window asks for under `/api/*` is forwarded to
 loora.design with `Authorization: Bearer <session token>` attached, which is
 why the window needs no cookie, no CORS, and no credential of its own:
-`/api/asset/…` images, the server-sent event stream, and oRPC all behave
-exactly as they do on the web.
+`/api/asset/…` images and oRPC behave exactly as they do on the web.
 
 **The interface** (`src/`, `index.html`, `vite.config.ts`) is a Vite + React
 single-page app on TanStack Router and Query, mounting the shared shell. In

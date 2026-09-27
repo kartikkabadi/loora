@@ -1,7 +1,7 @@
 import '@tanstack/react-start'
 import { createFileRoute } from '@tanstack/react-router'
 import { buildHandoffPayload } from '@loora/rpc/handoff'
-import { callerIdentity, rateLimit, rateLimits } from '@loora/rpc/rate-limit'
+import { callerIdentity, rateLimit } from '@loora/rpc/rate-limit'
 
 const publicHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,7 +20,6 @@ export const Route = createFileRoute('/api/handoff/$token')({
         const decision = await rateLimit(
           'handoff',
           callerIdentity(request.headers),
-          rateLimits.handoff,
         )
         if (!decision.ok) {
           return new Response(

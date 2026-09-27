@@ -12,7 +12,6 @@ import {
 import {
   callerIdentity,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -20,7 +19,6 @@ async function handle(request: Request) {
   const decision = await rateLimit(
     'chatgpt',
     callerIdentity(request.headers),
-    rateLimits.chatgpt,
   )
   if (!decision.ok) return tooManyRequestsResponse(decision)
 

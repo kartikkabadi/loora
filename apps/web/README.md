@@ -64,9 +64,9 @@ bun run --cwd apps/web cf-typegen
 ```
 
 The Cloudflare build replaces the Bun-only storage and screenshot adapters with
-R2 and Browser Rendering implementations. Realtime publishing uses the
-`apps/ws-server` ingest endpoint; Workers do not open the Bun Redis client used
-by the SSE fallback.
+R2 and Browser Rendering implementations, and gives the API rate limiter its
+`ratelimits` bindings. Realtime publishing uses the `apps/ws-server` ingest
+endpoint.
 
 ## Railway rollback path
 

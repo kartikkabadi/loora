@@ -19,7 +19,6 @@ import {
 import {
   callerIdentity,
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -41,7 +40,6 @@ export const Route = createFileRoute('/api/github/callback')({
         const decision = await rateLimit(
           'github',
           callerIdentity(request.headers),
-          rateLimits.github,
         )
         if (!decision.ok) return tooManyRequestsResponse(decision)
 

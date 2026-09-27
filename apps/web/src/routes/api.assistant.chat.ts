@@ -33,7 +33,6 @@ import { createMcpUsageController } from '@loora/rpc/mcp-usage'
 import { McpUsageLimitError } from '@loora/billing/mcp-usage'
 import {
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 
@@ -86,7 +85,6 @@ export async function assistantChatResponse(request: Request) {
   const decision = await rateLimit(
     'assistant',
     `user:${session.user.id}`,
-    rateLimits.assistant,
   )
   if (!decision.ok) return tooManyRequestsResponse(decision)
 

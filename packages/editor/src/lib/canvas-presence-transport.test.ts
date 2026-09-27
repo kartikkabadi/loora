@@ -20,9 +20,9 @@ interface FetchCall {
 }
 
 /**
- * Presence must ride one transport at a time. Before the socket exists the
- * client used to post the same peer to `/api/canvas-presence`, so the room saw
- * every cursor twice — once over HTTP and once over the socket.
+ * Presence rides the socket and nothing else. Before the socket exists, or
+ * when there is no socket service at all, a cursor frame is dropped rather than
+ * posted over HTTP.
  */
 function stubFetch(ticket: (() => Promise<Response>) | null) {
   const calls: FetchCall[] = []
@@ -45,7 +45,6 @@ function stubFetch(ticket: (() => Promise<Response>) | null) {
 }
 
 const originalFetch = globalThis.fetch
-const originalEventSource = globalThis.EventSource
 
 async function openController() {
   const controller = await CanvasSyncController.open(
@@ -65,7 +64,6 @@ describe('presence transport', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    globalThis.EventSource = originalEventSource
     configureRuntime({ apiOrigin: '' })
   })
 
@@ -87,23 +85,7 @@ describe('presence transport', () => {
     await controller.close()
   })
 
-  test('falls back to posting presence when realtime is not configured', async () => {
-    let eventSource:
-      | { url: string; withCredentials: boolean | undefined }
-      | undefined
-    class FakeEventSource {
-      constructor(url: string | URL, init?: EventSourceInit) {
-        eventSource = {
-          url: String(url),
-          withCredentials: init?.withCredentials,
-        }
-      }
-
-      addEventListener() {}
-      removeEventListener() {}
-      close() {}
-    }
-    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource
+  test('posts nothing over HTTP and stops ticketing when realtime is not configured', async () => {
     const calls = stubFetch(
       async () => new Response(JSON.stringify({ configured: false }), { status: 503 }),
     )
@@ -112,22 +94,10 @@ describe('presence transport', () => {
     controller.publishPresence({ cursor: { x: 4, y: 8 }, selection: [] })
     await new Promise((resolve) => setTimeout(resolve, 120))
 
-    const presence = calls.filter((call) => call.url.includes('/api/canvas-presence'))
-    expect(presence.length).toBeGreaterThan(0)
-    expect(presence.at(-1)?.body).toMatchObject({
-      designId: 'design-1',
-      cursor: { x: 4, y: 8 },
-    })
-    expect(presence.at(-1)?.credentials).toBe('include')
-    expect(presence.at(-1)?.url).toBe(
-      'https://api.loora.test/api/canvas-presence',
-    )
-    expect(eventSource).toMatchObject({
-      url: expect.stringContaining(
-        'https://api.loora.test/api/canvas-events?designId=design-1',
-      ),
-      withCredentials: true,
-    })
+    const tickets = calls.filter((call) => call.url.includes('/api/realtime-ticket'))
+    expect(tickets).toHaveLength(1)
+    expect(calls.some((call) => call.url.includes('/api/canvas-presence'))).toBe(false)
+    expect(calls.some((call) => call.url.includes('/api/canvas-events'))).toBe(false)
     await controller.close()
   })
 })

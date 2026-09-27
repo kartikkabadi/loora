@@ -9,8 +9,8 @@ export type FetchImpl = (
 
 /**
  * Cloudflare Worker bindings. Secrets (`MCP_INTERNAL_TOKEN`, optional
- * `MCP_INTERNAL_API_URL` / `REDIS_URL`) are set with `wrangler secret`, not
- * committed in wrangler.jsonc.
+ * `MCP_INTERNAL_API_URL`) are set with `wrangler secret`, not committed in
+ * wrangler.jsonc.
  */
 export type Env = {
   MCP_PUBLIC_URL: string
@@ -20,7 +20,6 @@ export type Env = {
   MCP_INTERNAL_TOKEN: string
   MCP_AUTH_TIMEOUT_MS?: string
   MCP_AUTH_CACHE_TTL_MS?: string
-  REDIS_URL?: string
   MCP_ADDRESS?: RateLimitBinding
   MCP_ANONYMOUS?: RateLimitBinding
   MCP_ACCOUNT?: RateLimitBinding

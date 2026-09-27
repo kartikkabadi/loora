@@ -14,7 +14,6 @@ export type Config = {
   authCacheTtlMs: number
   internalApiUrl: string
   internalToken: string
-  redisUrl: string | null
 }
 
 export type EnvValues = Record<string, string | undefined>
@@ -50,7 +49,6 @@ export function configFrom(get: (key: string) => string | undefined): Config {
     authCacheTtlMs: bounded(get('MCP_AUTH_CACHE_TTL_MS'), 0, 600_000, 60_000),
     internalApiUrl,
     internalToken,
-    redisUrl: optional(get('REDIS_URL')),
   }
 }
 

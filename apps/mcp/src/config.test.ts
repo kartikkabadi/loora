@@ -35,12 +35,4 @@ describe('MCP worker config', () => {
   test('requires the internal token', () => {
     expect(() => from({})).toThrow(ConfigError)
   })
-
-  test('rate limit uses the shared redis url', () => {
-    const config = from({
-      MCP_INTERNAL_TOKEN: 'secret',
-      REDIS_URL: ' redis://localhost:6379 ',
-    })
-    expect(config.redisUrl).toBe('redis://localhost:6379')
-  })
 })

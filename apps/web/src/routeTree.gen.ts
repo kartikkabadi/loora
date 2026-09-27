@@ -23,8 +23,6 @@ import { Route as ShutdownRouteImport } from './routes/shutdown'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as DotwellKnownOauthAuthorizationServerRouteImport } from './routes/[.]well-known.oauth-authorization-server'
-import { Route as ApiCanvasEventsRouteImport } from './routes/api.canvas-events'
-import { Route as ApiCanvasPresenceRouteImport } from './routes/api.canvas-presence'
 import { Route as ApiCustomDomainSiteRouteImport } from './routes/api.custom-domain-site'
 import { Route as ApiReadyRouteImport } from './routes/api.ready'
 import { Route as ApiRealtimeTicketRouteImport } from './routes/api.realtime-ticket'
@@ -132,16 +130,6 @@ const DotwellKnownOauthAuthorizationServerRoute =
     path: '/.well-known/oauth-authorization-server',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiCanvasEventsRoute = ApiCanvasEventsRouteImport.update({
-  id: '/api/canvas-events',
-  path: '/api/canvas-events',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiCanvasPresenceRoute = ApiCanvasPresenceRouteImport.update({
-  id: '/api/canvas-presence',
-  path: '/api/canvas-presence',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiCustomDomainSiteRoute = ApiCustomDomainSiteRouteImport.update({
   id: '/api/custom-domain-site',
   path: '/api/custom-domain-site',
@@ -334,8 +322,6 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/api/canvas-events': typeof ApiCanvasEventsRoute
-  '/api/canvas-presence': typeof ApiCanvasPresenceRoute
   '/api/custom-domain-site': typeof ApiCustomDomainSiteRoute
   '/api/ready': typeof ApiReadyRoute
   '/api/realtime-ticket': typeof ApiRealtimeTicketRoute
@@ -386,8 +372,6 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/api/canvas-events': typeof ApiCanvasEventsRoute
-  '/api/canvas-presence': typeof ApiCanvasPresenceRoute
   '/api/custom-domain-site': typeof ApiCustomDomainSiteRoute
   '/api/ready': typeof ApiReadyRoute
   '/api/realtime-ticket': typeof ApiRealtimeTicketRoute
@@ -440,8 +424,6 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/.well-known/oauth-authorization-server': typeof DotwellKnownOauthAuthorizationServerRoute
-  '/api/canvas-events': typeof ApiCanvasEventsRoute
-  '/api/canvas-presence': typeof ApiCanvasPresenceRoute
   '/api/custom-domain-site': typeof ApiCustomDomainSiteRoute
   '/api/ready': typeof ApiReadyRoute
   '/api/realtime-ticket': typeof ApiRealtimeTicketRoute
@@ -495,8 +477,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/terms'
     | '/.well-known/oauth-authorization-server'
-    | '/api/canvas-events'
-    | '/api/canvas-presence'
     | '/api/custom-domain-site'
     | '/api/ready'
     | '/api/realtime-ticket'
@@ -547,8 +527,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/terms'
     | '/.well-known/oauth-authorization-server'
-    | '/api/canvas-events'
-    | '/api/canvas-presence'
     | '/api/custom-domain-site'
     | '/api/ready'
     | '/api/realtime-ticket'
@@ -600,8 +578,6 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/terms'
     | '/.well-known/oauth-authorization-server'
-    | '/api/canvas-events'
-    | '/api/canvas-presence'
     | '/api/custom-domain-site'
     | '/api/ready'
     | '/api/realtime-ticket'
@@ -654,8 +630,6 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   DotwellKnownOauthAuthorizationServerRoute: typeof DotwellKnownOauthAuthorizationServerRoute
-  ApiCanvasEventsRoute: typeof ApiCanvasEventsRoute
-  ApiCanvasPresenceRoute: typeof ApiCanvasPresenceRoute
   ApiCustomDomainSiteRoute: typeof ApiCustomDomainSiteRoute
   ApiReadyRoute: typeof ApiReadyRoute
   ApiRealtimeTicketRoute: typeof ApiRealtimeTicketRoute
@@ -782,20 +756,6 @@ declare module '@tanstack/react-router' {
       path: '/.well-known/oauth-authorization-server'
       fullPath: '/.well-known/oauth-authorization-server'
       preLoaderRoute: typeof DotwellKnownOauthAuthorizationServerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/canvas-events': {
-      id: '/api/canvas-events'
-      path: '/api/canvas-events'
-      fullPath: '/api/canvas-events'
-      preLoaderRoute: typeof ApiCanvasEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/canvas-presence': {
-      id: '/api/canvas-presence'
-      path: '/api/canvas-presence'
-      fullPath: '/api/canvas-presence'
-      preLoaderRoute: typeof ApiCanvasPresenceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/custom-domain-site': {
@@ -1108,8 +1068,6 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   DotwellKnownOauthAuthorizationServerRoute:
     DotwellKnownOauthAuthorizationServerRoute,
-  ApiCanvasEventsRoute: ApiCanvasEventsRoute,
-  ApiCanvasPresenceRoute: ApiCanvasPresenceRoute,
   ApiCustomDomainSiteRoute: ApiCustomDomainSiteRoute,
   ApiReadyRoute: ApiReadyRoute,
   ApiRealtimeTicketRoute: ApiRealtimeTicketRoute,

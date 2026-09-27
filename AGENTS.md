@@ -64,7 +64,6 @@ packages/billing  Polar plan access / entitlements (`@loora/billing`)
 | `/api/assistant/chat` | The in-app agent's streaming run |
 | `/api/chatgpt/$` | Login-with-ChatGPT device flow, session, models, and response proxy |
 | `/api/realtime-ticket` | Mints a signed WebSocket ticket after the usual access checks |
-| `/api/canvas-events`, `/api/canvas-presence` | Server-sent-events fallback for realtime |
 | `/api/auth/$` | Better Auth |
 | `/api/asset/$id`, handoff asset routes | Asset serving |
 | GitHub connect + callback routes | OAuth |
@@ -344,12 +343,12 @@ Implementation: `packages/agent/src/canvas-tools.ts`, canonical MCP execution in
 
 ### Realtime
 
-One protocol, two transports, and one gate in front of both.
+One protocol, one transport, and one gate in front of it.
 
 - `@loora/realtime` holds the wire protocol (`canvas.changed`, `agent.activity`,
   `presence.peer`, `presence.state`), the HMAC connection tickets, and the
   ingest client. It imports nothing from db, auth, or canvas.
-- Browsers prefer a WebSocket to `apps/ws-server`. `/api/realtime-ticket` runs the
+- Browsers hold a WebSocket to `apps/ws-server`. `/api/realtime-ticket` runs the
   same checks as the editor (session, legal consent, design access, preview
   access, plan) and signs a 60-second ticket; the socket service verifies it and
   stamps presence identity from those claims. Tickets are single use (`jti`
@@ -357,42 +356,38 @@ One protocol, two transports, and one gate in front of both.
   the URL, and a socket is closed with `4001` after 15 minutes so the client
   re-tickets. One account may hold 20 sockets; the oldest gives way with `4002`,
   and an account may ask for 30 tickets a minute before it is turned away.
-  The key a peer holds in a room is minted server-side — from the ticket route
-  for a socket, scoped under the account for the SSE fallback — so nobody can
-  claim a peer's key and overwrite or clear their cursor.
-- `/api/canvas-events` (SSE) plus `/api/canvas-presence` remain the fallback,
-  used when no socket service is configured or a socket cannot be established.
-  Both transports carry identical events. Presence uses one of them at a time:
-  the HTTP post is only for the SSE path, never while a socket is connecting.
-- Server-side publishers (oRPC, MCP tools) call the same
-  `@loora/db/canvas-realtime` functions as before. Those post to the Worker's
-  `/publish` and also publish on Redis when it is configured, so WebSocket and
-  SSE viewers receive the same events. Either destination may fail independently.
+  The key a peer holds in a room is minted server-side by the ticket route, so
+  nobody can claim a peer's key and overwrite or clear their cursor.
+- There is no second transport. When no socket service is configured (the
+  ticket route answers 503) or a socket cannot be established, the editor keeps
+  the document fresh by polling and draws no cursors.
+- Server-side publishers (oRPC, MCP tools) call `@loora/db/canvas-realtime`,
+  which posts to the Worker's `/publish`. A publish that fails is dropped; the
+  next poll catches the change.
 - Durable Objects carry WebSocket room state, presence, activity, ticket replay
-  protection, connection caps, and ingest rate state. Redis remains the web
-  app's SSE fallback bus and its separate copy of ephemeral presence/activity.
+  protection, connection caps, and ingest rate state.
 
 Env: `REALTIME_WS_URL` and `REALTIME_TICKET_SECRET` on web; `REALTIME_INGEST_URL`
 and `REALTIME_INTERNAL_TOKEN` on web and MCP; `REALTIME_TICKET_SECRET`,
 `REALTIME_INTERNAL_TOKEN`, and `REALTIME_ALLOWED_ORIGINS` on
-`apps/ws-server`. The web app reads `REDIS_URL`
-for rate-limit counters. The MCP Worker uses Cloudflare Rate Limiting bindings
-in production and the same `ratelimit:` Redis keys (or in-memory fallback)
-when running locally on Bun. Keys are prefixed `ratelimit:` so they do not
-collide with room, presence, or ticket keys.
+`apps/ws-server`.
 
 ### Rate limiting
 
 `@loora/rpc/rate-limit` is the limiter for the web API routes. The MCP Worker
-counts the `mcp` / `mcp-address` / `mcp-anonymous` buckets itself (Cloudflare
-Rate Limiting bindings in production; Redis `EVAL` or memory locally) using
-the same numbers as the `rateLimits` table here. `rateLimit(bucket, identity, rule)`
-counts a fixed window in Redis
-(`REDIS_URL`, the same instance as the SSE fallback bus) with a single `EVAL`
-per check, and falls back to counting in this process's memory when that Redis
-is unset or unreachable — with a cooldown, so an outage never adds a connect
-timeout to a request. Every web limit lives in the `rateLimits` table in that
-module; add a new one there rather than inlining numbers at a call site.
+counts the `mcp` / `mcp-address` / `mcp-anonymous` buckets itself using the
+same numbers as the `rateLimits` table here. Both count with Cloudflare Rate
+Limiting bindings in production and fall back to this process's memory
+without them (tests, local Bun, the Railway rollback build).
+
+`rateLimit(bucket, identity)` looks the bucket up in `rateLimitBuckets`, which
+names its rule (from `rateLimits`) and its binding. Each binding is declared in
+`apps/web/wrangler.jsonc` with the same limit and period, and
+`apps/web/src/server/rate-limit-bindings.test.ts` fails when the two drift.
+Cloudflare only counts over 10- or 60-second periods, so every rule uses one of
+those windows. To add a limit: a rule in `rateLimits`, a bucket in
+`rateLimitBuckets`, a `ratelimits` entry with a fresh `namespace_id` in
+`wrangler.jsonc`, then `bun run --cwd apps/web cf-typegen`.
 
 Count a signed-in caller as `user:<id>` and everyone else by address
 (`callerIdentity`). **Never key a limit on the left-most `x-forwarded-for`

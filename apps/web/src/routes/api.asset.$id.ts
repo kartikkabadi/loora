@@ -12,7 +12,6 @@ import { db } from '@loora/db'
 import { asset } from '@loora/db/schema'
 import {
   rateLimit,
-  rateLimits,
   tooManyRequestsResponse,
 } from '@loora/rpc/rate-limit'
 import { s3 } from '@loora/rpc/storage'
@@ -24,7 +23,6 @@ export async function handleAssetRequest(request: Request, id: string) {
   const decision = await rateLimit(
     'asset',
     `user:${session.user.id}`,
-    rateLimits.asset,
   )
   if (!decision.ok) return tooManyRequestsResponse(decision)
 

@@ -3,8 +3,7 @@
  *
  * Web request handlers and the MCP server produce events; the WebSocket Worker
  * owns its Durable Object room state. Posting through this client keeps the
- * Worker transport behind one HTTP endpoint and a shared token. The web app
- * may also publish to Redis so its SSE fallback receives the same events.
+ * Worker transport behind one HTTP endpoint and a shared token.
  */
 
 import type {

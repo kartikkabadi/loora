@@ -17,9 +17,8 @@ import { resolveDesignAccess } from '@loora/db/design-access'
 import { designDraft } from '@loora/db/schema'
 
 /**
- * The one gate in front of realtime, shared by the WebSocket ticket endpoint
- * and the server-sent-events fallback. Both transports must agree on who may
- * watch a document; keeping the checks in one place is what makes that true.
+ * The one gate in front of realtime: every check the WebSocket ticket
+ * endpoint runs before it lets anybody watch a document.
  */
 
 export type RealtimeSession = NonNullable<Awaited<ReturnType<typeof requireSession>>>

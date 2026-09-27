@@ -33,6 +33,9 @@ const config = defineConfig({
       '@loora/rpc/storage': fileURLToPath(
         new URL('./src/server/storage.mts', import.meta.url),
       ),
+      '@loora/rpc/rate-limit-bindings': fileURLToPath(
+        new URL('./src/server/rate-limit-bindings.mts', import.meta.url),
+      ),
     },
   },
   plugins: [
