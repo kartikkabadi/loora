@@ -208,7 +208,10 @@ describe('MCP agent workflow', () => {
     await client.connect(clientTransport)
     try {
       const { tools } = await client.listTools()
-      expect(tools as unknown).toEqual(mcpToolManifest)
+      // Compare the JSON protocol payload: SDK parsing may add optional undefined fields.
+      expect(JSON.parse(JSON.stringify(tools))).toEqual(
+        JSON.parse(JSON.stringify(mcpToolManifest)),
+      )
       expect(tools.length).toBeGreaterThanOrEqual(30)
       // The raw zod conversion inlined every shared shape into every tool
       // (~156KB total, patchNodes alone 43KB). The custom tools/list handler
