@@ -603,7 +603,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -2238,7 +2241,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -3602,7 +3608,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -4523,7 +4532,10 @@
                       "minimum": -10,
                       "maximum": 10
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -5048,7 +5060,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -6441,7 +6456,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -7136,7 +7154,10 @@
                       "minimum": -10,
                       "maximum": 10
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               },
               "required": [
@@ -7405,7 +7426,10 @@
                       "type": "number",
                       "minimum": 0
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               ]
             },
@@ -7762,7 +7786,10 @@
                       "minimum": -10,
                       "maximum": 10
                     }
-                  ]
+                  ],
+                  "additionalItems": false,
+                  "minItems": 4,
+                  "maxItems": 4
                 }
               },
               "required": [
