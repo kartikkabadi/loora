@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM oven/bun:1.4.0 AS deps
+FROM oven/bun:1.4.4 AS deps
 WORKDIR /app
 
 # Workspace manifests only, so dependency layers cache until a package.json,
@@ -26,7 +26,7 @@ COPY packages/editor/package.json packages/editor/
 COPY packages/ui/package.json packages/ui/
 RUN bun install --frozen-lockfile
 
-FROM oven/bun:1.4.0 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /app
 
 COPY --from=deps /app ./
@@ -43,7 +43,7 @@ RUN echo "VITE_DATABUDDY_CLIENT_ID length: ${#VITE_DATABUDDY_CLIENT_ID}"
 
 RUN bun run --cwd apps/web build:railway --logLevel warn
 
-FROM oven/bun:1.4.0-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
